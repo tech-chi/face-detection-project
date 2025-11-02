@@ -1,15 +1,13 @@
 import os
 import sqlite3
-import numpy as np
-import cv2  # OpenCV for image processing
-import tensorflow as tf
 from flask import Flask, request, render_template, g
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.sql import func
 import click
-import threading # To make model loading thread-safe
+import threading
 
-# --- Configuration ---
+# --- Light Imports ---
+# These are the ONLY libraries imported during the build step.
 app = Flask(__name__)
 db_url = os.environ.get('DATABASE_URL')
 
@@ -28,47 +26,41 @@ app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB
 
 db = SQLAlchemy(app)
 
+# --- Configuration (No Imports) ---
 MODEL_FILE = 'face_emotionModel.h5'
 IMG_WIDTH, IMG_HEIGHT = 48, 48
-
-# --- Emotion Mapping ---
 EMOTION_MAP = {
     0: ("Angry", "You seem angry. What's troubling you?"),
     1: ("Disgust", "You look disgusted. Did something unpleasant happen?"),
-2: ("Fear", "You appear fearful. Is everything alright?"),
+    2: ("Fear", "You appear fearful. Is everything alright?"),
     3: ("Happy", "You are smiling! What's the great news?"),
     4: ("Sad", "You are frowning. Why are you sad?"),
     5: ("Surprise", "You look surprised! What happened?"),
     6: ("Neutral", "You seem neutral. Just a regular day?")
 }
 
-# --- LAZY LOAD MODEL ---
-# We initialize the model as None.
-# It will be loaded by get_model() on the first web request.
+# --- Lazy Load Model ---
 model = None
-model_lock = threading.Lock() # Ensures only one thread loads the model
+model_lock = threading.Lock()
 
 def get_model():
     """
     Loads the model if it's not already loaded.
-    This is thread-safe.
+    Imports tensorflow ONLY when called.
     """
     global model
-    # Use a lock to ensure that two concurrent requests
-    # don't both try to load the model at the same time.
+    # Heavy import moved inside
+    import tensorflow as tf 
+    
     with model_lock:
         if model is None:
             print(f"Loading emotion model from {MODEL_FILE}...")
             try:
-                # This is where the memory-intensive load happens
                 model = tf.keras.models.load_model(MODEL_FILE)
                 print("Model loaded successfully.")
             except Exception as e:
                 print(f"Error loading model: {e}")
-                # The app will run, but predictions will fail.
         return model
-# --- END LAZY LOAD ---
-
 
 # --- Database Model ---
 class User(db.Model):
@@ -83,9 +75,11 @@ class User(db.Model):
 # --- Database Setup Command ---
 @app.cli.command('init-db')
 def init_db_command():
-    """Flask CLI command to initialize the database tables."""
-    # NOTE: This command does NOT call get_model(),
-    # so TensorFlow is never loaded during the build.
+    """
+    Flask CLI command to initialize the database tables.
+    This command ONLY loads Flask and SQLAlchemy.
+    It does NOT import tensorflow, cv2, or numpy.
+    """
     try:
         with app.app_context():
             db.create_all()
@@ -95,6 +89,14 @@ def init_db_command():
 
 # --- Image Preprocessing ---
 def preprocess_image(image_file_storage):
+    """
+    Processes the uploaded image.
+    Imports cv2 and numpy ONLY when called.
+    """
+    # Heavy imports moved inside
+    import cv2
+    import numpy as np
+
     try:
         in_memory_file = np.frombuffer(image_file_storage.read(), np.uint8)
         img = cv2.imdecode(in_memory_file, cv2.IMREAD_GRAYSCALE)
@@ -117,10 +119,11 @@ def index():
     prediction_text = None
     error_text = None
     
-    # --- Load model on-demand ---
-    # This will be called on the first request to the page.
+    # Load model on-demand when the first request hits this page
     current_model = get_model()
-    # --- --- ---
+    
+    # We also need numpy here for argmax
+    import numpy as np
 
     if request.method == 'POST':
         if current_model is None:
@@ -152,7 +155,6 @@ def index():
             if not success:
                 error_text = error
             else:
-                # Use the loaded model
                 prediction = current_model.predict(processed_image)
                 pred_index = np.argmax(prediction)
                 emotion_label, response_text = EMOTION_MAP.get(pred_index, ("Unknown", "Couldn't read that expression."))
@@ -178,4 +180,3 @@ def index():
 @app.errorhandler(413)
 def request_entity_too_large(error):
     return render_template('index.html', error_text="File is too large. Max size is 5 MB."), 413
-
