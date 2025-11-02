@@ -4,22 +4,36 @@ import numpy as np
 import cv2  # OpenCV for image processing
 import tensorflow as tf
 from flask import Flask, request, render_template, g
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.sql import func
 import click
 
 # --- Configuration ---
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
+# Render provides the DATABASE_URL env var
+# Format: postgresql://user:password@host:port/database
+db_url = os.environ.get('DATABASE_URL')
+
+if not db_url:
+    print("Error: DATABASE_URL environment variable not set.")
+    # We'll set a local fallback for 'flask init-db' to work,
+    # but the app will fail on Render if this isn't set.
+    # We will create a local 'instance' folder for this fallback.
+    try:
+        os.makedirs(app.instance_path)
+    except OSError:
+        pass
+    db_url = f"sqlite:///{os.path.join(app.instance_path, 'local.db')}"
+    print(f"Warning: Using local fallback SQLite DB at {db_url}")
+
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url.replace("postgres://", "postgresql://", 1) # Fix for SQLAlchemy
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB
-DATABASE = 'database.db'
+
+db = SQLAlchemy(app)
+
 MODEL_FILE = 'face_emotionModel.h5'
 IMG_WIDTH, IMG_HEIGHT = 48, 48
-
-# Ensure the instance folder exists
-# This is where the persistent disk will be mounted on Render
-try:
-    os.makedirs(app.instance_path)
-except OSError:
-    pass
 
 # --- Emotion Mapping ---
 EMOTION_MAP = {
@@ -42,36 +56,28 @@ except Exception as e:
     print(f"Please ensure '{MODEL_FILE}' is in the root directory.")
     model = None
 
-# --- Database Setup ---
-def get_db():
-    db = getattr(g, '_database', None)
-    if db is None:
-        # Use the instance path for the database file
-        db_path = os.path.join(app.instance_path, DATABASE)
-        db = g._database = sqlite3.connect(db_path)
-        db.row_factory = sqlite3.Row
-    return db
+# --- Database Model ---
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(150), nullable=False)
+    email = db.Column(db.String(150), nullable=False)
+    # Use LargeBinary for BLOB storage (works on Postgres and SQLite)
+    image_data = db.Column(db.LargeBinary, nullable=False)
+    detected_emotion = db.Column(db.String(50))
+    timestamp = db.Column(db.DateTime(timezone=True), server_default=func.now())
 
-@app.teardown_appcontext
-def close_connection(exception):
-    db = getattr(g, '_database', None)
-    if db is not None:
-        db.close()
-
-def init_db():
-    """Initializes the database from the schema.sql file."""
-    db = get_db()
-    # schema.sql should be in the root directory
-    with app.open_resource('schema.sql', mode='r') as f:
-        db.cursor().executescript(f.read())
-    db.commit()
-    print("Database initialized.")
-
+# --- Database Setup Command ---
 @app.cli.command('init-db')
 def init_db_command():
-    """Flask CLI command to initialize the database."""
-    init_db()
-    print('Initialized the database.')
+    """Flask CLI command to initialize the database tables."""
+    try:
+        with app.app_context():
+            db.create_all()
+        print('Initialized the database tables.')
+    except Exception as e:
+        print(f"Error initializing database: {e}")
+        print("Please ensure your DATABASE_URL is set correctly in Render.")
 
 # --- Image Preprocessing ---
 def preprocess_image(image_file_storage):
@@ -134,13 +140,17 @@ def index():
                 prediction_text = response_text
                 
                 try:
-                    db = get_db()
-                    db.execute(
-                        "INSERT INTO users (name, email, image_data, detected_emotion) VALUES (?, ?, ?, ?)",
-                        (name, email, image_data_for_db, emotion_label)
+                    # New save method using SQLAlchemy
+                    new_user = User(
+                        name=name, 
+                        email=email, 
+                        image_data=image_data_for_db, 
+                        detected_emotion=emotion_label
                     )
-                    db.commit()
+                    db.session.add(new_user)
+                    db.session.commit()
                 except Exception as e:
+                    db.session.rollback()
                     print(f"Database save error: {e}")
                     error_text = "Prediction complete, but failed to save data to DB."
 
@@ -149,9 +159,4 @@ def index():
 @app.errorhandler(413)
 def request_entity_too_large(error):
     return render_template('index.html', error_text="File is too large. Max size is 5 MB."), 413
-
-# --- Main Execution ---
-if __name__ == '__main__':
-    # We no longer init_db here. We use the 'flask init-db' command.
-    app.run(debug=True)
 
