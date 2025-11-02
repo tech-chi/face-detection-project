@@ -3,172 +3,212 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Emotion Detector</title>
+    <title>Facial Emotion Detector</title>
     <style>
-        /* Minimalist, Pastel, Modern HTML */
+        /* --- Reset & Base --- */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #F0F4F8; /* Light pastel blue-gray */
-            color: #333;
+            /* New: Light pastel pink gradient */
+            background-image: linear-gradient(135deg, #fff0f5 10%, #ffe6f0 100%);
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            margin: 0;
             padding: 20px;
-            box-sizing: border-box;
         }
 
+        /* --- Main App Container (Translucent) --- */
         .container {
-            background-color: #FFFFFF;
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
-            padding: 2.5rem;
             width: 100%;
-            max-width: 500px;
-            box-sizing: border-box;
+            max-width: 480px;
+            padding: 2.5rem 2.25rem;
+            
+            /* The Translucent Effect */
+            background-color: rgba(255, 255, 255, 0.7);
+            -webkit-backdrop-filter: blur(14px);
+            backdrop-filter: blur(14px);
+            
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px; /* Softer rounding */
+            /* Softer, more subtle shadow */
+            box-shadow: 0 8px 32px 0 rgba(100, 90, 90, 0.1);
+            text-align: center;
         }
 
         h1 {
-            text-align: center;
-            color: #2C3E50; /* Dark blue-gray */
-            margin-top: 0;
-            margin-bottom: 1.5rem;
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 0.75rem; /* More spacing */
+        }
+
+        p.subtitle {
+            font-size: 1rem;
+            color: #555;
+            margin-bottom: 2.5rem; /* Lots of whitespace */
+            line-height: 1.5;
+        }
+
+        /* --- Form Styling --- */
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem; /* Increased gap for more whitespace */
         }
 
         .form-group {
-            margin-bottom: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
         }
 
-        .form-group label {
-            display: block;
+        label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #444;
             margin-bottom: 0.5rem;
-            font-weight: 600;
-            color: #555;
         }
 
-        .form-group input[type="text"],
-        .form-group input[type="email"],
-        .form-group input[type="file"] {
+        input[type="text"],
+        input[type="email"],
+        input[type="file"] {
             width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #D1D5DB; /* Light gray border */
-            border-radius: 8px;
-            box-sizing: border-box; /* Important for padding */
+            padding: 0.875rem 1.1rem;
             font-size: 1rem;
+            border: 1px solid rgba(200, 200, 200, 0.4);
+            border-radius: 12px; /* Softer rounding */
+            background-color: rgba(255, 255, 255, 0.75);
+            color: #333;
+            transition: border 0.3s ease, box-shadow 0.3s ease;
         }
 
-        .form-group input[type="file"] {
-            padding: 0.5rem;
-            background-color: #F9FAFB;
+        input[type="text"]:focus,
+        input[type="email"]:focus {
+            outline: none;
+            border-color: #ffb3c1; /* New: Pastel pink accent */
+            box-shadow: 0 0 0 3px rgba(255, 179, 193, 0.3);
         }
 
-        .form-group input::file-selector-button {
-            padding: 0.5rem 1rem;
+        /* Custom File Input */
+        input[type="file"] {
+            padding: 0.6rem;
+            font-size: 0.9rem;
+        }
+        
+        input[type="file"]::file-selector-button {
+            font-weight: 600;
+            color: #444;
+            background-color: #ffb3c1; /* Pastel pink */
+            padding: 0.6rem 1rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
             margin-right: 1rem;
-            background-color: #E0E7FF; /* Pastel indigo */
-            color: #3730A3; /* Dark indigo */
+        }
+
+        input[type="file"]::file-selector-button:hover {
+            background-color: #fba0af;
+        }
+
+        /* --- Submit Button --- */
+        button {
+            padding: 1rem;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #41222b; /* Darker pink text for contrast */
+            background-color: #fba0af; /* Stronger pastel pink */
             border: none;
-            border-radius: 6px;
+            border-radius: 12px;
             cursor: pointer;
-            font-weight: 600;
-            transition: background-color 0.2s;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            margin-top: 1rem;
         }
 
-        .form-group input::file-selector-button:hover {
-            background-color: #C7D2FE;
+        button:hover {
+            background-color: #f88a9d;
+            transform: translateY(-2px);
         }
 
-        .btn {
-            width: 100%;
-            padding: 0.85rem;
-            border: none;
-            border-radius: 8px;
-            background-color: #4A90E2; /* Stronger pastel blue */
-            color: white;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.2s;
+        button:active {
+            transform: translateY(0);
         }
 
-        .btn:hover {
-            background-color: #357ABD;
-        }
-
-        .result-box, .error-box {
-            text-align: center;
-            font-size: 1.1rem;
-            font-weight: 600;
-            padding: 1.25rem;
-            border-radius: 8px;
+        /* --- Message Boxes --- */
+        .message {
+            padding: 1rem 1.25rem;
             margin-top: 1.5rem;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            text-align: left;
+            line-height: 1.5;
+            background-color: rgba(255, 255, 255, 0.8); /* Translucent base */
         }
 
-        .result-box {
-            background-color: #D1FAE5; /* Pastel green */
-            color: #065F46; /* Dark green */
-            border: 1px solid #A7F3D0;
+        .error {
+            color: #c53030;
+            border: 1px solid rgba(254, 200, 200, 1);
         }
 
-        .error-box {
-            background-color: #FEE2E2; /* Pastel red */
-            color: #991B1B; /* Dark red */
-            border: 1px solid #FECACA;
+        .prediction {
+            color: #2f855a;
+            border: 1px solid rgba(200, 254, 210, 1);
+        }
+
+        /* --- Signature --- */
+        .signature {
+            font-size: 0.8rem;
+            color: #888;
+            margin-top: 2.5rem; /* Whitespace before signature */
         }
     </style>
 </head>
 <body>
+
     <div class="container">
-        <h1>Emotion Detector</h1>
-        
-        <!-- Display Result or Error Messages -->
-        {% if prediction_text %}
-            <div class="result-box">
-                {{ prediction_text }}
-            </div>
-        {% endif %}
+        <!-- New: Updated wording -->
+        <h1>Hello, how are you feeling?</h1>
+        <p class="subtitle">Share a quick photo and I'll tell you the emotion I see.</p>
+
+        <!-- Result/Error Messages -->
         {% if error_text %}
-            <div class="error-box">
-                {{ error_text }}
-            </div>
+            <div class="message error">{{ error_text }}</div>
+        {% endif %}
+        {% if prediction_text %}
+            <div class="message prediction">{{ prediction_text }}</div>
         {% endif %}
 
-        <form method="POST" enctype="multipart/form-data" onsubmit="return validateForm()">
+        <!-- Upload Form -->
+        <form method="POST" enctype="multipart/form-data">
             <div class="form-group">
-                <label for="name">Full Name</label>
+                <label for="name">Name</label>
                 <input type="text" id="name" name="name" required>
             </div>
+            
             <div class="form-group">
-                <label for="email">Email Address</label>
+                <label for="email">Email</label>
                 <input type="email" id="email" name="email" required>
             </div>
+
             <div class="form-group">
-                <label for="image">Upload Your Picture (PNG, JPG, max 5MB)</label>
-                <input type="file" id="image" name="image" accept=".png, .jpeg, .jpg" required>
+                <label for="image">Upload Your Image (PNG, JPG)</label>
+                <input type="file" id="image" name="image" accept="image/png, image/jpeg" required>
             </div>
-            <button typea="submit" class="btn">Detect Emotion</button>
+            
+            <button type="submit">Analyze Emotion</button>
         </form>
+
+        <!-- New: Signature Added -->
+        <p class="signature">Nnebedum Chiamaka 22CH032033</p>
     </div>
 
-    <script>
-        // Client-side validation for file size
-        function validateForm() {
-            const fileInput = document.getElementById('image');
-            if (fileInput.files.length > 0) {
-                const fileSize = fileInput.files[0].size; // in bytes
-                const maxSize = 5 * 1024 * 1024; // 5 MB
-                
-                if (fileSize > maxSize) {
-                    // We can't use our pretty error box without a page reload,
-                    // so we'll use a simple alert for client-side check.
-                    // The server will catch it anyway.
-                    alert('File is too large! Maximum size is 5 MB.');
-                    return false;
-                }
-            }
-            return true;
-        }
-    </script>
 </body>
 </html>
+
