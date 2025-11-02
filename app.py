@@ -7,18 +7,14 @@ from flask import Flask, request, render_template, g
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.sql import func
 import click
+import threading # To make model loading thread-safe
 
 # --- Configuration ---
 app = Flask(__name__)
-# Render provides the DATABASE_URL env var
-# Format: postgresql://user:password@host:port/database
 db_url = os.environ.get('DATABASE_URL')
 
 if not db_url:
     print("Error: DATABASE_URL environment variable not set.")
-    # We'll set a local fallback for 'flask init-db' to work,
-    # but the app will fail on Render if this isn't set.
-    # We will create a local 'instance' folder for this fallback.
     try:
         os.makedirs(app.instance_path)
     except OSError:
@@ -26,7 +22,7 @@ if not db_url:
     db_url = f"sqlite:///{os.path.join(app.instance_path, 'local.db')}"
     print(f"Warning: Using local fallback SQLite DB at {db_url}")
 
-app.config['SQLALCHEMY_DATABASE_URI'] = db_url.replace("postgres://", "postgresql://", 1) # Fix for SQLAlchemy
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url.replace("postgres://", "postgresql://", 1)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB
 
@@ -39,22 +35,40 @@ IMG_WIDTH, IMG_HEIGHT = 48, 48
 EMOTION_MAP = {
     0: ("Angry", "You seem angry. What's troubling you?"),
     1: ("Disgust", "You look disgusted. Did something unpleasant happen?"),
-    2: ("Fear", "You appear fearful. Is everything alright?"),
+2: ("Fear", "You appear fearful. Is everything alright?"),
     3: ("Happy", "You are smiling! What's the great news?"),
     4: ("Sad", "You are frowning. Why are you sad?"),
     5: ("Surprise", "You look surprised! What happened?"),
     6: ("Neutral", "You seem neutral. Just a regular day?")
 }
 
-# --- Load Model ---
-print(f"Loading emotion model from {MODEL_FILE}...")
-try:
-    model = tf.keras.models.load_model(MODEL_FILE)
-    print("Model loaded successfully.")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    print(f"Please ensure '{MODEL_FILE}' is in the root directory.")
-    model = None
+# --- LAZY LOAD MODEL ---
+# We initialize the model as None.
+# It will be loaded by get_model() on the first web request.
+model = None
+model_lock = threading.Lock() # Ensures only one thread loads the model
+
+def get_model():
+    """
+    Loads the model if it's not already loaded.
+    This is thread-safe.
+    """
+    global model
+    # Use a lock to ensure that two concurrent requests
+    # don't both try to load the model at the same time.
+    with model_lock:
+        if model is None:
+            print(f"Loading emotion model from {MODEL_FILE}...")
+            try:
+                # This is where the memory-intensive load happens
+                model = tf.keras.models.load_model(MODEL_FILE)
+                print("Model loaded successfully.")
+            except Exception as e:
+                print(f"Error loading model: {e}")
+                # The app will run, but predictions will fail.
+        return model
+# --- END LAZY LOAD ---
+
 
 # --- Database Model ---
 class User(db.Model):
@@ -62,7 +76,6 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(150), nullable=False)
     email = db.Column(db.String(150), nullable=False)
-    # Use LargeBinary for BLOB storage (works on Postgres and SQLite)
     image_data = db.Column(db.LargeBinary, nullable=False)
     detected_emotion = db.Column(db.String(50))
     timestamp = db.Column(db.DateTime(timezone=True), server_default=func.now())
@@ -71,13 +84,14 @@ class User(db.Model):
 @app.cli.command('init-db')
 def init_db_command():
     """Flask CLI command to initialize the database tables."""
+    # NOTE: This command does NOT call get_model(),
+    # so TensorFlow is never loaded during the build.
     try:
         with app.app_context():
             db.create_all()
         print('Initialized the database tables.')
     except Exception as e:
         print(f"Error initializing database: {e}")
-        print("Please ensure your DATABASE_URL is set correctly in Render.")
 
 # --- Image Preprocessing ---
 def preprocess_image(image_file_storage):
@@ -102,9 +116,14 @@ def preprocess_image(image_file_storage):
 def index():
     prediction_text = None
     error_text = None
+    
+    # --- Load model on-demand ---
+    # This will be called on the first request to the page.
+    current_model = get_model()
+    # --- --- ---
 
     if request.method == 'POST':
-        if model is None:
+        if current_model is None:
             error_text = "Model is not loaded. Cannot perform prediction."
             return render_template('index.html', error_text=error_text)
 
@@ -133,14 +152,14 @@ def index():
             if not success:
                 error_text = error
             else:
-                prediction = model.predict(processed_image)
+                # Use the loaded model
+                prediction = current_model.predict(processed_image)
                 pred_index = np.argmax(prediction)
                 emotion_label, response_text = EMOTION_MAP.get(pred_index, ("Unknown", "Couldn't read that expression."))
                 
                 prediction_text = response_text
                 
                 try:
-                    # New save method using SQLAlchemy
                     new_user = User(
                         name=name, 
                         email=email, 
