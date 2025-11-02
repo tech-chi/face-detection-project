@@ -1,0 +1,15 @@
+Large datasets
+
+fer2013.csv
+
+Instance folder and local database
+
+instance/
+*.db
+*.sqlite
+*.sqlite3
+
+Python cache
+
+pycache/
+*.pyc
